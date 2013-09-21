@@ -1,0 +1,64 @@
+#!/usr/bin/env python
+
+"""Collect RSD venue urls by state and int'l list, dump into CSV.
+"""
+
+import argparse
+import json
+import sys
+
+from lxml import html
+import requests
+import unicodecsv
+
+
+def scrape_venue_urls(key, loc):
+    """Visit a page, return list of URLs scraped from links.
+    """
+
+    # pull list of venues for location
+    resp = requests.get('http://www.recordstoreday.com/Venues', params={
+        key: loc
+    })
+
+    if resp.status_code != requests.codes.ok:
+        raise RuntimeError('Could not pull venue list for <%s>: %s' % (
+            loc, resp.text))
+
+    # extract a list of urls
+    doc = html.fromstring(resp.content)
+    doc.make_links_absolute('http://www.recordstoreday.com/')
+
+    return [
+        a.attrib['href']
+        for a
+        in doc.xpath('//a[contains(@href, "/Venue/")]')
+    ]
+
+
+def main(out_fn, config):
+    if out_fn:
+        out_h = open(out_fn, 'w')
+    else:
+        out_h = sys.stdout
+
+    writer = unicodecsv.writer(out_h)
+
+    # scrape venue urls from each state and int'l list page
+    config = json.load(open(opts.config, 'r'))
+
+    keys = ('state', 'country')
+
+    for key in keys:
+        for loc in config[key]:
+            urls = scrape_venue_urls(key, loc)
+            print urls
+
+
+if __name__ == '__main__':
+    pars = argparse.ArgumentParser()
+    pars.add_argument('-o', dest='output')
+    pars.add_argument('-c', dest='config')
+    opts = pars.parse_args()
+
+    main(out_fn=opts.output, config=opts.config)
