@@ -1,6 +1,5 @@
 *.py[c|o]
 .DS_Store
-*.sql
 *.bz2
 *~
 *.log
