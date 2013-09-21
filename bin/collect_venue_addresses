@@ -1,0 +1,145 @@
+#!/usr/bin/env python
+
+"""Scrape addresses from venue detail pages.
+
+Input is supplied by data collection from `collect_venues`.
+"""
+
+import argparse
+import json
+import sys
+import time
+
+# import chardet
+from lxml import html
+import requests
+import unicodecsv
+
+
+class MissingInformation(ValueError):
+    """Raised when a venue is missing a piece of information,
+    such as its URL.
+    """
+
+
+def clean_text(value):
+    """Uniform text cleanup
+    """
+
+    return unicode(value.strip())
+
+
+def extract_venue_name(doc):
+    """Extracts record store's name
+    """
+
+    node = doc.xpath('//div[@class="venue"]/h2')
+
+    if not node:
+        raise MissingInformation('Cannot find record store name')
+
+    txt = node[0].text
+
+    if not txt:
+        raise MissingInformation('Record store name node missing content')
+
+    return clean_text(txt)
+
+
+def extract_venue_url(doc):
+    """Extracts record store's URL
+    """
+
+    # extract url -- bail if no url, as we're only interested
+    # in record stores we can link to
+    node = doc.xpath('//a[contains(text(), "VISIT WEBSITE")]')
+
+    if not node:
+        raise MissingInformation('Cannot find record store URL')
+
+    txt = node[0].get('href')
+
+    if not txt:
+        raise MissingInformation('Record store URL node missing @href')
+
+    return clean_text(txt)
+
+
+def extract_venue_address(doc):
+    """Extracts record store's physical address
+
+    NOTE: This is the fastest path to a reliable address,
+    but the approach is clearly vulnerable. There are a few tags on the page
+    with this url fragment, and we're relying on there being only one <a>.
+    """
+
+    node = doc.xpath('//a[contains(@href, "maps.google.com/maps?")]')
+
+    # bail if we're missing an address.
+    if not node:
+        raise MissingInformation('Cannot find record store address')
+
+    # danger: assume the first node is our intended
+    txt = node[0].text
+
+    if not txt:
+        raise MissingInformation('Record store map unavailable')
+
+    return clean_text(txt)
+
+
+def scrape_venue_address(url):
+    """Scrapes and returns the street address from a given url.
+    """
+
+    # pull venue detail page
+    resp = requests.get(url)
+
+    if resp.status_code != requests.codes.ok:
+        raise RuntimeError('Could not scrape address from <%s>: %s' % (
+            url, resp.text))
+
+    doc = html.fromstring(resp.content.decode(resp.encoding, 'ignore'))
+
+    # build venue
+    venue = {'name': None, 'addr': None, 'url': None}
+    venue['name'] = extract_venue_name(doc)
+    venue['url'] = extract_venue_url(doc)
+    venue['addr'] = extract_venue_address(doc)
+
+    return venue
+
+
+if __name__ == '__main__':
+    pars = argparse.ArgumentParser()
+    pars.add_argument('-i', dest='input')
+    pars.add_argument('-o', dest='output')
+    pars.add_argument('-c', dest='config')
+    opts = pars.parse_args()
+
+    in_h = open(opts.input, 'r')   if opts.input  else sys.stdin
+    out_h = open(opts.output, 'w') if opts.output else sys.stdout
+
+    reader = unicodecsv.reader(in_h)
+    writer = unicodecsv.writer(out_h)
+
+    # read config
+    config = json.load(open(opts.config, 'r'))
+
+    # write header row
+    writer.writerow(['name', 'addr', 'url'])
+
+    for row in reader:
+        # lame
+        url = row[0]
+
+        try:
+            venue = scrape_venue_address(url)
+        except MissingInformation as exc:
+            # venue was skipped over missing data
+            sys.stderr.write('Skipped scraping for <%s>: %s\n' % (url, exc))
+            continue
+
+        # write venue information, take a nap
+        writer.writerow([venue['name'], venue['addr'], venue['url']])
+        time.sleep(0.2)
