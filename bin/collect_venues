@@ -6,6 +6,7 @@
 import argparse
 import json
 import sys
+import time
 
 from lxml import html
 import requests
@@ -51,14 +52,30 @@ def main(out_fn, config):
 
     for key in keys:
         for loc in config[key]:
-            urls = scrape_venue_urls(key, loc)
-            print urls
+            try:
+                sys.stderr.write(loc + '\n')
+                urls = scrape_venue_urls(key, loc)
+            except Exception as exc:
+                sys.stderr.write(exc)
+
+                # should we continue?
+                yn = raw_input('- Should I continue? [Y/n]: ')
+                if yn[0].lower() != 'y':
+                    sys.exit(1)
+
+                continue
+
+            for url in urls:
+                writer.writerow([url])
+
+            # take a moment
+            time.sleep(0.2)
 
 
 if __name__ == '__main__':
     pars = argparse.ArgumentParser()
     pars.add_argument('-o', dest='output')
-    pars.add_argument('-c', dest='config')
+    pars.add_argument('-c', dest='config', required=True)
     opts = pars.parse_args()
 
     main(out_fn=opts.output, config=opts.config)
