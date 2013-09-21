@@ -1,9 +1,4 @@
 {
-    "mapquest": {
-        "client": null,
-        "appkey": null
-    },
-
     "rsd_site": {
         "state": [
             "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE",

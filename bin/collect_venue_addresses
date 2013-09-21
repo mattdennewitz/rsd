@@ -7,13 +7,17 @@ Input is supplied by data collection from `collect_venues`.
 
 import argparse
 import json
+import re
 import sys
 import time
 
-# import chardet
-from lxml import html
+from lxml import html as l_html
 import requests
 import unicodecsv
+
+
+lat_re = re.compile(r"latitude = '(-?\d+(?:\.\d{1,})?)'")
+lng_re = re.compile(r"longitude = '(-?\d+(?:\.\d{1,})?)'")
 
 
 class MissingInformation(ValueError):
@@ -88,6 +92,22 @@ def extract_venue_address(doc):
     return clean_text(txt)
 
 
+def extract_venue_geo(html):
+    """Scours HTML for lat/lng pair.
+    """
+
+    lat = lat_re.search(html)
+    lng = lng_re.search(html)
+
+    if not lat or not lng:
+        raise MissingInformation('Record store lat/lng unavailable')
+
+    return (
+        lat.groups(0)[0],
+        lng.groups(0)[0],
+    )
+
+
 def scrape_venue_address(url):
     """Scrapes and returns the street address from a given url.
     """
@@ -99,13 +119,15 @@ def scrape_venue_address(url):
         raise RuntimeError('Could not scrape address from <%s>: %s' % (
             url, resp.text))
 
-    doc = html.fromstring(resp.content.decode(resp.encoding, 'ignore'))
+    html = resp.content.decode(resp.encoding, 'ignore')
+    doc = l_html.fromstring(html)
 
     # build venue
-    venue = {'name': None, 'addr': None, 'url': None}
+    venue = {'name': None, 'addr': None, 'url': None, 'lat': None, 'lng': None}
     venue['name'] = extract_venue_name(doc)
     venue['url'] = extract_venue_url(doc)
     venue['addr'] = extract_venue_address(doc)
+    venue['lat'], venue['lng'] = extract_venue_geo(html)
 
     return venue
 
@@ -114,7 +136,6 @@ if __name__ == '__main__':
     pars = argparse.ArgumentParser()
     pars.add_argument('-i', dest='input')
     pars.add_argument('-o', dest='output')
-    pars.add_argument('-c', dest='config')
     opts = pars.parse_args()
 
     in_h = open(opts.input, 'r')   if opts.input  else sys.stdin
@@ -123,11 +144,8 @@ if __name__ == '__main__':
     reader = unicodecsv.reader(in_h)
     writer = unicodecsv.writer(out_h)
 
-    # read config
-    config = json.load(open(opts.config, 'r'))
-
     # write header row
-    writer.writerow(['name', 'addr', 'url'])
+    writer.writerow(['name', 'addr', 'url', 'lat', 'lng'])
 
     for row in reader:
         # lame
@@ -140,6 +158,8 @@ if __name__ == '__main__':
             sys.stderr.write('Skipped scraping for <%s>: %s\n' % (url, exc))
             continue
 
-        # write venue information, take a nap
-        writer.writerow([venue['name'], venue['addr'], venue['url']])
+        # write venue information
+        writer.writerow((venue['name'], venue['addr'], venue['url'],
+                         venue['lat'], venue['lng'], ))
+
         time.sleep(0.2)
